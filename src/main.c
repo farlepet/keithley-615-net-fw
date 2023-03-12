@@ -12,7 +12,7 @@ LOG_MODULE_REGISTER(keithley615_comm, LOG_LEVEL_DBG);
 
 #include <time.h>
 
-static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
+static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(DT_PATH(leds, led_run), gpios);
 
 static struct net_mgmt_event_callback mgmt_cb;
 K_CONDVAR_DEFINE(net_ready_cond);

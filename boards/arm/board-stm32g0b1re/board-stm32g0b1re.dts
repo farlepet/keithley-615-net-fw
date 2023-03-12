@@ -32,26 +32,149 @@
 
 	leds {
 		compatible = "gpio-leds";
-		green_led_1: led_4 {
-			gpios = <&gpioa 5 GPIO_ACTIVE_HIGH>;
-			label = "User LD4";
+		led_run {
+			gpios = <&gpioa 15 GPIO_ACTIVE_HIGH>;
+			label = "Run LED";
+		};
+		led_trigger {
+			gpios = <&gpioc 8 GPIO_ACTIVE_HIGH>;
+			label = "Trigger LED";
+		};
+		led_user1 {
+			gpios = <&gpioc 9 GPIO_ACTIVE_HIGH>;
+			label = "User LED 1";
+		};
+		led_user2 {
+			gpios = <&gpiod 0 GPIO_ACTIVE_HIGH>;
+			label = "User LED 2";
 		};
 	};
 
+    /* Keithley 615 50-pin interface */
+    interface {
+        data {
+            polarity-gpios = <&gpioa  5 GPIO_ACTIVE_HIGH>;
+            overload-gpios = <&gpiob  2 GPIO_ACTIVE_HIGH>;
+            hold-gpios     = <&gpioc  3 GPIO_ACTIVE_HIGH>,
+                             <&gpioc  2 GPIO_ACTIVE_HIGH>;
+            trigger-gpios  = <&gpioc  1 GPIO_ACTIVE_HIGH>;
+            print-gpios    = <&gpioc  0 GPIO_ACTIVE_HIGH>;
+
+            digit_0 {
+                bcd-gpios  = <&gpiod  9 GPIO_ACTIVE_HIGH>,
+                             <&gpioc  7 GPIO_ACTIVE_HIGH>,
+                             <&gpioa 10 GPIO_ACTIVE_HIGH>,
+                             <&gpiod  8 GPIO_ACTIVE_HIGH>;
+            };
+            digit_1 {
+                bcd-gpios  = <&gpioa  7 GPIO_ACTIVE_HIGH>,
+                             <&gpiob 15 GPIO_ACTIVE_HIGH>,
+                             <&gpioc  6 GPIO_ACTIVE_HIGH>,
+                             <&gpioa  8 GPIO_ACTIVE_HIGH>;
+            };
+            digit_2 {
+                bcd-gpios  = <&gpiob 13 GPIO_ACTIVE_HIGH>,
+                             <&gpiob 11 GPIO_ACTIVE_HIGH>,
+                             <&gpiob 14 GPIO_ACTIVE_HIGH>,
+                             <&gpiob 12 GPIO_ACTIVE_HIGH>;
+            };
+            digit_3 {
+                bcd-gpios  = <&gpiob 10 GPIO_ACTIVE_HIGH>;
+            };
+        };
+        range {
+            digit_0 {
+                bcd-gpios  = <&gpiob  1 GPIO_ACTIVE_HIGH>,
+                             <&gpioc  5 GPIO_ACTIVE_HIGH>,
+                             <&gpiob  0 GPIO_ACTIVE_HIGH>,
+                             <&gpioc  4 GPIO_ACTIVE_HIGH>;
+            };
+            digit_1 {
+                bcd-gpios  = <&gpioa  7 GPIO_ACTIVE_HIGH>;
+            };
+        };
+        sensitivity {
+            digit_0 {
+                bcd-gpios  = <&gpioa  2 GPIO_ACTIVE_HIGH>,
+                             <&gpioc 13 GPIO_ACTIVE_HIGH>;
+            };
+        };
+    };
+
 	gpio_keys {
 		compatible = "gpio-keys";
-		user_button: button {
-			label = "User";
-			gpios = <&gpioc 13 GPIO_ACTIVE_LOW>;
+		button_trigger {
+			label = "Manual Trigger";
+			gpios = <&gpioc 10 GPIO_ACTIVE_LOW>;
 		};
 	};
 
 	aliases {
-		led0 = &green_led_1;
-		sw0 = &user_button;
 		watchdog0 = &iwdg;
 	};
 };
+
+uart_rs232: &usart1 {
+	pinctrl-0 = <&usart1_tx_pb6  &usart1_rx_pb7
+                 &usart1_rts_pb3 &usart1_cts_pb4>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+    /* hw-flow-control */
+	status = "okay";
+};
+
+uart_usb: &usart2 {
+	pinctrl-0 = <&usart2_tx_pd5  &usart2_rx_pd6
+                 &usart2_rts_pd4 &usart2_cts_pd3>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+    /* hw-flow-control */
+	status = "okay";
+};
+
+&spi1 {
+	status = "okay";
+	pinctrl-0 = <&spi1_sck_pa1 &spi1_miso_pa6 &spi1_mosi_pa2>;
+	pinctrl-names = "default";
+    cs-gpios = <&gpioa 3 GPIO_ACTIVE_LOW>, <&gpioa 4 GPIO_ACTIVE_LOW>;
+
+    ethernet_w5500: w5500@0 {
+        compatible = "wiznet,w5500";
+        label = "w5500";
+        reg = <0x0>;
+        spi-max-frequency = <10000000>;
+        reset-gpios = <&gpioc 11 GPIO_ACTIVE_LOW>;
+        int-gpios   = <&gpioc 12 GPIO_ACTIVE_LOW>;
+    };
+
+    user_spi: spi_device@1 {
+        label = "User SPI";
+        reg = <0x0>;
+        spi-max-frequency = <10000000>;
+    };
+};
+
+&i2c1 {
+	status = "okay";
+	pinctrl-0 = <&i2c1_scl_pb8 &i2c1_sda_pb9>;
+	pinctrl-names = "default";
+
+    user_i2c: i2c_device@0 {
+        label = "User I2C";
+        reg = <0x0>;
+    };
+};
+
+zephyr_udc0: &usb {
+	pinctrl-0 = <&usb_dm_pa11 &usb_dp_pa12>;
+	pinctrl-names = "default";
+    disconnect-gpios = <&gpiob 15 GPIO_ACTIVE_HIGH>;
+	status = "okay";
+};
+
+/*
+ * Chip-internal devices follow
+ */
 
 &clk_lsi {
 	status = "okay";
@@ -82,25 +205,7 @@
 	apb1-prescaler = <1>;
 };
 
-zephyr_udc0: &usb {
-	pinctrl-0 = <&usb_dm_pa11 &usb_dp_pa12>;
-	pinctrl-names = "default";
-	status = "okay";
-};
 
-&usart1 {
-	pinctrl-0 = <&usart1_tx_pc4 &usart1_rx_pc5>;
-	pinctrl-names = "default";
-	current-speed = <115200>;
-	status = "okay";
-};
-
-&usart2 {
-	pinctrl-0 = <&usart2_tx_pa2 &usart2_rx_pa3>;
-	pinctrl-names = "default";
-	current-speed = <115200>;
-	status = "okay";
-};
 
 &rtc {
 	clocks = <&rcc STM32_CLOCK_BUS_APB1 0x00000400>,
@@ -132,21 +237,7 @@ zephyr_udc0: &usb {
 	};
 };
 
-&spi2 {
-	pinctrl-0 = <&spi2_nss_pd0 &spi2_sck_pd1
-		     &spi2_miso_pd3 &spi2_mosi_pd4>;
-	pinctrl-names = "default";
-	status = "okay";
 
-    ethernet_w5500: w5500@0 {
-        compatible = "wiznet,w5500";
-        label = "w5500";
-        reg = <0x0>;
-        spi-max-frequency = <10000000>;
-        int-gpios = <&gpiob 9 GPIO_ACTIVE_LOW>;
-        reset-gpios = <&gpiob 8 GPIO_ACTIVE_LOW>;
-    };
-};
 
 &die_temp {
 	status = "okay";
@@ -188,3 +279,4 @@ zephyr_udc0: &usb {
 		 <&rcc STM32_SRC_LSI LPTIM1_SEL(1)>;
 	status = "okay";
 };
+

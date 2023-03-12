@@ -6,3 +6,17 @@ interface board that can be found in https://github.com/farlepet/keithley-615-pr
 
 More details to come as work progresses.
 
+Building
+--------
+
+TODO: Add details on setting up Zephyr
+
+Source zephyr script:
+```bash
+source <zephyr dir>/zephyr-env.sh
+```
+
+Build project
+```bash
+west build -p auto -b board-stm32g0b1re .
+```
