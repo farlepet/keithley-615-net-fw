@@ -10,6 +10,7 @@ include_directories(${EXECUTABLE_NAME}
 
 target_sources(app PRIVATE
                src/main.c
+               src/interface.c
                src/usb.c
                src/net.c)
 

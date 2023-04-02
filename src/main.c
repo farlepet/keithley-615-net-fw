@@ -6,8 +6,9 @@ LOG_MODULE_REGISTER(keithley615_comm, LOG_LEVEL_DBG);
 
 #include <time.h>
 
-#include "usb.h"
+#include "interface.h"
 #include "net.h"
+#include "usb.h"
 
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(DT_PATH(leds, led_run), gpios);
 
@@ -25,6 +26,11 @@ void main(void) {
     }
 
     LOG_INF("Keithley 615 network interface board");
+
+    if(kei_interface_init()) {
+        LOG_ERR("Interface failure");
+    }
+    kei_interface_read();
 
     kei_usb_init();
 
