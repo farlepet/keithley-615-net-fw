@@ -5,5 +5,11 @@ set(BOARD_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(keithley615-comm-app)
 
-target_sources(app PRIVATE src/main.c)
+include_directories(${EXECUTABLE_NAME}
+                    inc/)
+
+target_sources(app PRIVATE
+               src/main.c
+               src/usb.c
+               src/net.c)
 

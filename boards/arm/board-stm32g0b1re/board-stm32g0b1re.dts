@@ -95,7 +95,7 @@
         };
         sensitivity {
             digit_0 {
-                bcd-gpios  = <&gpioa  2 GPIO_ACTIVE_HIGH>,
+                bcd-gpios  = <&gpioa  0 GPIO_ACTIVE_HIGH>,
                              <&gpioc 13 GPIO_ACTIVE_HIGH>;
             };
         };
@@ -141,20 +141,24 @@ uart_usb: &usart2 {
     ethernet_w5500: w5500@0 {
         compatible = "wiznet,w5500";
         label = "w5500";
-        reg = <0x0>;
+        reg = <0>;
         spi-max-frequency = <10000000>;
         reset-gpios = <&gpioc 11 GPIO_ACTIVE_LOW>;
         int-gpios   = <&gpioc 12 GPIO_ACTIVE_LOW>;
+
+        /* Random test MAC address, made static for now for ease of packet sniffing */
+        local-mac-address=[ 02 08 dc b0 6f df ];
+        /*zephyr,random-mac-address;*/
     };
 
     user_spi: spi_device@1 {
         label = "User SPI";
-        reg = <0x0>;
+        reg = <1>;
         spi-max-frequency = <10000000>;
     };
 };
 
-&i2c1 {
+/*&i2c1 {
 	status = "okay";
 	pinctrl-0 = <&i2c1_scl_pb8 &i2c1_sda_pb9>;
 	pinctrl-names = "default";
@@ -163,12 +167,12 @@ uart_usb: &usart2 {
         label = "User I2C";
         reg = <0x0>;
     };
-};
+};*/
 
 zephyr_udc0: &usb {
 	pinctrl-0 = <&usb_dm_pa11 &usb_dp_pa12>;
 	pinctrl-names = "default";
-    disconnect-gpios = <&gpiob 15 GPIO_ACTIVE_HIGH>;
+    disconnect-gpios = <&gpiob 5 GPIO_ACTIVE_HIGH>;
 	status = "okay";
 };
 
