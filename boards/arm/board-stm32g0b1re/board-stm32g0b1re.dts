@@ -7,9 +7,9 @@
 	compatible = "st,stm32g0b1re-nucleo";
 
 	chosen {
-		zephyr,console = &usart2;
-		zephyr,shell-uart = &usart2;
-		zephyr,uart-mcumgr = &usart2;
+		zephyr,console = &usart1;
+		zephyr,shell-uart = &usart1;
+		zephyr,uart-mcumgr = &usart1;
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
 		zephyr,code-partition = &slot0_partition;
@@ -176,7 +176,8 @@ zephyr_udc0: &usb {
  * Chip-internal devices follow
  */
 
-&clk_lsi {
+&clk_hse {
+	clock-frequency = <DT_FREQ_M(24)>;
 	status = "okay";
 };
 
@@ -188,13 +189,23 @@ zephyr_udc0: &usb {
 	status = "okay";
 };
 
+
+&clk_lse {
+	status = "okay";
+};
+
+&clk_lsi {
+	status = "okay";
+};
+
+
 &pll {
 	div-m = <1>;
 	mul-n = <8>;
-	div-p = <2>;
-	div-q = <2>;
-	div-r = <2>;
-	clocks = <&clk_hsi>;
+	div-p = <3>;
+	div-q = <3>;
+	div-r = <3>;
+	clocks = <&clk_hse>;
 	status = "okay";
 };
 
@@ -209,7 +220,7 @@ zephyr_udc0: &usb {
 
 &rtc {
 	clocks = <&rcc STM32_CLOCK_BUS_APB1 0x00000400>,
-		 <&rcc STM32_SRC_LSI RTC_SEL(2)>;
+		     <&rcc STM32_SRC_LSE RTC_SEL(1)>;
 	status = "okay";
 };
 
