@@ -30,7 +30,13 @@ void main(void) {
     if(kei_interface_init()) {
         LOG_ERR("Interface failure");
     }
-    kei_interface_read();
+
+    while(1) {
+        /* TODO: Create separete thread, disable printing by default. */
+        kei_interface_print();
+        k_msleep(500);
+    }
+
 
     kei_usb_init();
 

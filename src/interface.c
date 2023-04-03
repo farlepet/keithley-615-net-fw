@@ -19,9 +19,9 @@ static const struct {
     struct gpio_dt_spec print;
     struct gpio_dt_spec hold[2];
 
-    struct gpio_dt_spec data_bcd[13];
-    struct gpio_dt_spec range_bcd[5];
-    struct gpio_dt_spec sensitivity_bcd[2];
+    struct gpio_dt_spec data_bcd       [N_DATA_BITS];
+    struct gpio_dt_spec range_bcd      [N_RANGE_BITS];
+    struct gpio_dt_spec sensitivity_bcd[N_SENSITIVITY_BITS];
 } _int_gpios = {
     .polarity = GPIO_DT_SPEC_GET(ZEPHYR_USER_NODE, polarity_gpios),
     .overload = GPIO_DT_SPEC_GET(ZEPHYR_USER_NODE, overload_gpios),
@@ -59,7 +59,63 @@ static const struct {
     }
 };
 
+
+static struct {
+    kei_interface_rawdata_t last_sample;
+
+    struct gpio_callback print_gpio_callback;
+} _data;
+
+/**
+ * @brief Read a whole value given a set of BCD inputs
+ */
+int _bcd_read(const struct gpio_dt_spec *gpios, int count) {
+    unsigned value = 0;
+    unsigned mul   = 1;
+    while(count) {
+        for(unsigned bit = 0; (bit < 4) && count; bit++, count--, gpios++) {
+            int pin = gpio_pin_get_dt(gpios);
+            if(pin < 0) {
+                return -1;
+            } else if(pin) {
+                value += (1U << bit) * mul;
+            }
+        }
+        mul *= 10;
+    }
+    return value;
+}
+
+/**
+ * @brief Callback for print line going low
+ */
+static void _print_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
+    int data        = _bcd_read(_int_gpios.data_bcd,        N_DATA_BITS);
+    int range       = _bcd_read(_int_gpios.range_bcd,       N_RANGE_BITS);
+    int sensitivity = _bcd_read(_int_gpios.sensitivity_bcd, N_SENSITIVITY_BITS);
+
+    if((data < 0) || (range < 0) || (sensitivity < 0)) {
+        return;
+    }
+
+    if(gpio_pin_get_dt(&_int_gpios.polarity) == 1) {
+        data *= -1;
+    }
+
+    _data.last_sample.value       = data;
+    _data.last_sample.range       = range;
+    _data.last_sample.sensitivity = sensitivity;
+    _data.last_sample.flags       = 0;
+    if(gpio_pin_get_dt(&_int_gpios.overload) == 1) {
+        _data.last_sample.flags  |= KEI_DATAFLAG_OVERLOAD;
+    }
+
+    /* TODO: Timestamp sample */
+}
+
 int kei_interface_init(void) {
+    memset(&_data, 0, sizeof(_data));
+
     if(gpio_pin_configure_dt(&_int_gpios.polarity, GPIO_INPUT)           ||
        gpio_pin_configure_dt(&_int_gpios.overload, GPIO_INPUT)           ||
        gpio_pin_configure_dt(&_int_gpios.trigger,  GPIO_OUTPUT_INACTIVE) ||
@@ -87,41 +143,49 @@ int kei_interface_init(void) {
 
     LOG_INF("GPIOs initialized");
 
-    return 0;
-}
 
-/**
- * @brief Read a whole value given a set of BCD inputs
- */
-int _bcd_read(const struct gpio_dt_spec *gpios, int count) {
-    unsigned value = 0;
-    unsigned mul   = 1;
-    while(count) {
-        for(unsigned bit = 0; (bit < 4) && count; bit++, count--, gpios++) {
-            int pin = gpio_pin_get_dt(gpios);
-            if(pin < 0) {
-                return -1;
-            } else if(pin) {
-                value += (1U << bit) * mul;
-            }
-        }
-        mul *= 10;
-    }
-    return value;
-}
-
-int kei_interface_read(void) {
-    int data        = _bcd_read(_int_gpios.data_bcd,        N_DATA_BITS);
-    int range       = _bcd_read(_int_gpios.range_bcd,       N_RANGE_BITS);
-    int sensitivity = _bcd_read(_int_gpios.sensitivity_bcd, N_SENSITIVITY_BITS);
-
-    if((data < 0) || (range < 0) || (sensitivity < 0)) {
+    if(gpio_pin_interrupt_configure_dt(&_int_gpios.print, GPIO_INT_EDGE_TO_INACTIVE)) {
+        LOG_ERR("Failed to enable interrupts for print pin.");
         return -1;
     }
 
-    LOG_INF("data:        %4d", data);
-    LOG_INF("range:         %2d", range);
-    LOG_INF("sensitivity:    %1d", sensitivity);
+	gpio_init_callback(&_data.print_gpio_callback, _print_callback, BIT(_int_gpios.print.pin));
+	if(gpio_add_callback(_int_gpios.print.port, &_data.print_gpio_callback)) {
+        LOG_ERR("Failed to add callback for print pin.");
+        return -1;
+    }
+
+    LOG_INF("Print interrupt enabled");
+
+    return 0;
+}
+
+
+#define ABS(V) (((V) < 0) ? -(V) : (V))
+int kei_interface_print(void) {
+    if(_data.last_sample.flags & KEI_DATAFLAG_OVERLOAD) {
+        LOG_INF("data: OVERLOAD");
+    } else {
+        unsigned value = ABS(_data.last_sample.value);
+
+        unsigned div = 10;
+        for(int i = _data.last_sample.sensitivity; i < 3; i++) {
+            div *= 10;
+        }
+        unsigned mul = 10000 / div;
+
+        unsigned whole = value / div;
+        unsigned frac  = (value - (whole * div)) * mul;
+
+        /* NOTE: If -1 < value < 0, the sign will not be present in the whole,
+         * so we instead just print it explicitly. Avoiding floating-points to
+         * ensure accuracy. Could also just print it as milli-whatever instead.
+         * Could also use the polarity bit directly as a flag, to also enable
+         * negative zero. */
+        LOG_INF("data: %c%03u.%04u x 10^(+/- %u)", 
+                (_data.last_sample.value < 0) ? '-' : '+',
+                whole, frac, _data.last_sample.range);
+    }
 
     return 0;
 }

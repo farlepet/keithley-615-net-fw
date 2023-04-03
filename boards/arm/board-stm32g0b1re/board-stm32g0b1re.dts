@@ -65,7 +65,7 @@
                             <&gpioc  7 GPIO_ACTIVE_HIGH>,
                             <&gpioa 10 GPIO_ACTIVE_HIGH>,
                             <&gpiod  8 GPIO_ACTIVE_HIGH>,
-                            <&gpioa  7 GPIO_ACTIVE_HIGH>,
+                            <&gpioa  9 GPIO_ACTIVE_HIGH>,
                             <&gpiob 15 GPIO_ACTIVE_HIGH>,
                             <&gpioc  6 GPIO_ACTIVE_HIGH>,
                             <&gpioa  8 GPIO_ACTIVE_HIGH>,
