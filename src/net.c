@@ -8,6 +8,8 @@
 
 #include <time.h>
 
+#include "net.h"
+
 LOG_MODULE_REGISTER(kei_net);
 
 static struct net_mgmt_event_callback _mgmt_cb;
@@ -16,7 +18,7 @@ K_MUTEX_DEFINE(_net_ready_mutex);
 
 struct net_if *_net_iface;
 
-static void _handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, struct net_if *iface) {
+static void _net_ev_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, struct net_if *iface) {
     int i = 0;
 
     if (mgmt_event != NET_EVENT_IPV4_ADDR_ADD) {
@@ -49,19 +51,43 @@ static void _handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, st
     }
 }
 
-int kei_net_init(void) {
+static void _net_thread_main(void *p1, void *p2, void *p3) {
+    (void)p1; (void)p2; (void)p3;
+
     LOG_INF("Init");
 
-    net_mgmt_init_event_callback(&_mgmt_cb, _handler, NET_EVENT_IPV4_ADDR_ADD);
+    net_mgmt_init_event_callback(&_mgmt_cb, _net_ev_handler, NET_EVENT_IPV4_ADDR_ADD);
     net_mgmt_add_event_callback(&_mgmt_cb);
-
+    
     _net_iface = net_if_get_default();
     if(_net_iface == NULL) {
-        return -1;
+        LOG_ERR("Net init failre");
+        return;
+    }
+    
+    time_t   time_s;
+    unsigned time_us;
+    
+    if(kei_net_getaddr() ||
+       kei_net_sntp(&time_s, &time_us)) {
+        LOG_ERR("Net failure");
+        return;
+    } else {
+        LOG_INF("UNIX time: %llu.%06u", time_s, time_us);
+    
+        struct tm *time = gmtime(&time_s);
+        if(time) {
+            LOG_INF("UTC: %04d-%02d-%02dT%02d:%02d:%02d",
+                    time->tm_year + 1900, time->tm_mon + 1, time->tm_mday,
+                    time->tm_hour, time->tm_min, time->tm_sec);
+        }
     }
 
-    return 0;
+    while(1) {
+        k_msleep(1000);
+    }
 }
+static K_THREAD_DEFINE(_net_thread_tid, 1024, _net_thread_main, NULL, NULL, NULL, 7, 0, 500);
 
 int kei_net_getaddr(void) {
     LOG_INF("Starting DHCP");
