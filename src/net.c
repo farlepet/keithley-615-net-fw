@@ -66,15 +66,15 @@ static void _net_thread_main(void *p1, void *p2, void *p3) {
         return;
     }
     
-    time_t   time_s;
-    unsigned time_us;
-    
     if(kei_net_getaddr()) {
         LOG_ERR("Net failure");
         return;
     }
 
 #if (CONFIG_SNTP)
+    time_t   time_s;
+    unsigned time_us;
+    
     if (kei_net_sntp(&time_s, &time_us)) {
         LOG_ERR("SNTP failure");
         goto main_sntp_end;
@@ -86,6 +86,16 @@ static void _net_thread_main(void *p1, void *p2, void *p3) {
             LOG_INF("UTC: %04d-%02d-%02dT%02d:%02d:%02d",
                     time->tm_year + 1900, time->tm_mon + 1, time->tm_mday,
                     time->tm_hour, time->tm_min, time->tm_sec);
+        }
+
+        struct timespec ts = {
+            .tv_sec  = time_s,
+            .tv_nsec = time_us * 1000
+        };
+        if (clock_settime(CLOCK_REALTIME, &ts)) {
+            LOG_ERR("Failed to set system time");
+        } else {
+            LOG_INF("System time set");
         }
     }
 
@@ -102,16 +112,11 @@ int kei_net_getaddr(void) {
     LOG_INF("Starting DHCP");
 
     net_dhcpv4_start(_net_iface);
-    int attempts = 0;
-    while(++attempts < 4) {
-        if(k_condvar_wait(&_net_ready_cond, &_net_ready_mutex, K_MSEC(16000))) {
-            LOG_INF("Restarting DHCP");
-            net_dhcpv4_restart(_net_iface);
-        } else {
-            break;
-        }
-    }
-    if(attempts == 4) {
+    
+    /* DHCP is sometimes taking over a minute to complete. Not sure if this is
+     * a network issue, or a hardware issue (though lack of packet errors seems
+     * to show that it is not hardware related). */
+    if(k_condvar_wait(&_net_ready_cond, &_net_ready_mutex, K_MSEC(300000))) {
         LOG_ERR("DHCP failed");
         return -1;
     }
