@@ -11,6 +11,7 @@ int kei_net_init(void);
  */
 int kei_net_getaddr(void);
 
+#if (CONFIG_SNTP)
 /**
  * @brief Get time via SNTP
  *
@@ -18,6 +19,7 @@ int kei_net_getaddr(void);
  * @param time_us Where to store microsecond time offset, if desired
  */
 int kei_net_sntp(time_t *time_s, unsigned *time_us);
+#endif /* (CONFIG_SNTP) */
 
 #endif
 

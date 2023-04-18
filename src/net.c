@@ -5,6 +5,7 @@
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/sntp.h>
+#include <zephyr/shell/shell.h>
 
 #include <time.h>
 
@@ -68,10 +69,15 @@ static void _net_thread_main(void *p1, void *p2, void *p3) {
     time_t   time_s;
     unsigned time_us;
     
-    if(kei_net_getaddr() ||
-       kei_net_sntp(&time_s, &time_us)) {
+    if(kei_net_getaddr()) {
         LOG_ERR("Net failure");
         return;
+    }
+
+#if (CONFIG_SNTP)
+    if (kei_net_sntp(&time_s, &time_us)) {
+        LOG_ERR("SNTP failure");
+        goto main_sntp_end;
     } else {
         LOG_INF("UNIX time: %llu.%06u", time_s, time_us);
     
@@ -83,11 +89,14 @@ static void _net_thread_main(void *p1, void *p2, void *p3) {
         }
     }
 
+main_sntp_end:
+#endif /* (CONFIG_SNTP) */
+
     while(1) {
         k_msleep(1000);
     }
 }
-static K_THREAD_DEFINE(_net_thread_tid, 1024, _net_thread_main, NULL, NULL, NULL, 7, 0, 500);
+static K_THREAD_DEFINE(kei_net, 1536, _net_thread_main, NULL, NULL, NULL, 7, 0, 500);
 
 int kei_net_getaddr(void) {
     LOG_INF("Starting DHCP");
@@ -112,6 +121,7 @@ int kei_net_getaddr(void) {
     return 0;
 }
 
+#if (CONFIG_SNTP)
 int kei_net_sntp(time_t *time_s, unsigned *time_us) {
     int ret = 0;
 
@@ -120,8 +130,8 @@ int kei_net_sntp(time_t *time_s, unsigned *time_us) {
     struct sockaddr_in sntp_addr;
 
     /* TODO: Make configurable */
-#define NTP_PORT 123
-#define NTP_ADDR "129.6.15.29"
+#  define NTP_PORT 123
+#  define NTP_ADDR "129.6.15.29"
 
     sntp_addr.sin_family = AF_INET;
     sntp_addr.sin_port   = htons(NTP_PORT);
@@ -133,7 +143,6 @@ int kei_net_sntp(time_t *time_s, unsigned *time_us) {
         goto sntp_end;
     }
 
-#if 1
     int attempts = 0;
     while(++attempts < 6) {
         LOG_INF("Querying SNTP");
@@ -157,10 +166,28 @@ int kei_net_sntp(time_t *time_s, unsigned *time_us) {
         *time_us = (unsigned)(((float)sntp_time.fraction * 1000000) / ((1ULL << 32) - 1));
     }
 
-#else
-    ret = -1;
-#endif
 sntp_end:
+    sntp_close(&sntp);
 
     return ret;
 }
+#endif /* (CONFIG_SNTP) */
+
+static int _cmdhdlr_net_info(const struct shell *sh, size_t argc, char **argv);
+
+SHELL_STATIC_SUBCMD_SET_CREATE(_subcmd_net,
+    SHELL_CMD(info, NULL, "Print network info.", _cmdhdlr_net_info),
+    SHELL_SUBCMD_SET_END
+);
+
+SHELL_CMD_REGISTER(kei_net, &_subcmd_net, "Network subcommands", NULL);
+
+static int _cmdhdlr_net_info(const struct shell *sh, size_t argc, char **argv) {
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+
+    shell_print(sh, "test");
+
+    return 0;
+}
+

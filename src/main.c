@@ -28,21 +28,18 @@ void main(void) {
         LOG_ERR("Interface failure");
     }
 
-    while(1) {
-        /* TODO: Create separete thread, disable printing by default. */
-        kei_interface_print();
-        k_msleep(500);
-    }
-
-
     kei_usb_init();
 
 #define SLEEP_TIME_MS (500)
     while(1) {
+        /* TODO: Create separete thread, disable printing by default. */
+        //kei_interface_print();
+
         ret = gpio_pin_toggle_dt(&led);
         if(ret < 0) {
             return;
         }
+
         k_msleep(SLEEP_TIME_MS);
     }
 }
