@@ -62,6 +62,7 @@ static const struct {
 
 static struct {
     kei_interface_rawdata_t last_sample;
+    kei_interface_mode_e    mode;
 
     struct gpio_callback print_gpio_callback;
 } _data;
@@ -161,30 +162,86 @@ int kei_interface_init(void) {
 }
 
 
+static const char *_unit_str[KEI_MODE_MAX] = {
+    [KEI_MODE_NONE]     = "U",
+    [KEI_MODE_VOLTS]    = "V",
+    [KEI_MODE_OHMS]     = "ohms",
+    [KEI_MODE_COULOMBS] = "C",
+    [KEI_MODE_AMPERES]  = "A"
+};
+
 #define ABS(V) (((V) < 0) ? -(V) : (V))
 int kei_interface_print(void) {
-    if(_data.last_sample.flags & KEI_DATAFLAG_OVERLOAD) {
+    kei_interface_data_t data;
+    if (kei_interface_get_data(&data)) {
+        return -1;
+    }
+    if(data.flags & KEI_DATAFLAG_OVERLOAD) {
         LOG_INF("data: OVERLOAD");
-    } else {
-        unsigned value = ABS(_data.last_sample.value);
+        return 0;
+    }
 
-        unsigned div = 10;
-        for(int i = _data.last_sample.sensitivity; i < 3; i++) {
-            div *= 10;
-        }
-        unsigned mul = 10000 / div;
+    unsigned whole = ABS(data.value) / 1000000;
+    unsigned frac  = (ABS(data.value) % 1000000) / 100;
 
-        unsigned whole = value / div;
-        unsigned frac  = (value - (whole * div)) * mul;
+    /* NOTE: If -1 < value < 0, the sign will not be present in the whole,
+     * so we instead just print it explicitly. Avoiding floating-points to
+     * ensure accuracy. Could also just print it as milli-whatever instead.
+     * Could also use the polarity bit directly as a flag, to also enable
+     * negative zero. */
+    LOG_INF("data: %c%03u.%04u x 10^%+02hhd %s", 
+            (data.value < 0) ? '-' : '+',
+            whole, frac, data.range,
+            _unit_str[_data.mode]);
 
-        /* NOTE: If -1 < value < 0, the sign will not be present in the whole,
-         * so we instead just print it explicitly. Avoiding floating-points to
-         * ensure accuracy. Could also just print it as milli-whatever instead.
-         * Could also use the polarity bit directly as a flag, to also enable
-         * negative zero. */
-        LOG_INF("data: %c%03u.%04u x 10^(+/- %u)", 
-                (_data.last_sample.value < 0) ? '-' : '+',
-                whole, frac, _data.last_sample.range);
+    return 0;
+}
+
+int kei_interface_set_mode(kei_interface_mode_e mode) {
+    if(mode >= KEI_MODE_MAX) {
+        return -1;
+    }
+
+    _data.mode = mode;
+
+    return 0;
+}
+
+int kei_interface_get_data(kei_interface_data_t *data) {
+    if(!data) {
+        return -1;
+    }
+
+    /* TODO: Ensure raw data doesn't get overwritted while we are reading it */
+    memset(data, 0, sizeof(*data));
+
+    /* NOTE: Currently all flags that apply to rawdata apply to data as well */
+    data->flags = _data.last_sample.flags;
+
+    if(data->flags & KEI_DATAFLAG_OVERLOAD) {
+        return 0;
+    }
+
+    unsigned value = ABS(_data.last_sample.value);
+
+    /* Convert base value to micro-units */
+    value *= 100; /* Least-significant digit at sensitivity 0 is 100 micro-units */
+    for(unsigned i = _data.last_sample.sensitivity; i > 0; i--) {
+        value *= 10;
+    }
+    data->value = (_data.last_sample.value >= 0) ? value : -value;
+
+    /* Determine sign power based on current mode */
+    switch(_data.mode) {
+        case KEI_MODE_VOLTS:
+        case KEI_MODE_OHMS:
+            data->range = _data.last_sample.range;
+            break;
+        case KEI_MODE_NONE:
+        case KEI_MODE_COULOMBS:
+        case KEI_MODE_AMPERES:
+            data->range = -_data.last_sample.range;
+            break;
     }
 
     return 0;
