@@ -75,6 +75,9 @@ static struct {
     } trig;
 
     struct gpio_callback print_gpio_callback;
+
+    struct k_condvar data_ready_cond;
+    struct k_mutex   data_ready_mutex;
 } _data;
 
 /**
@@ -122,6 +125,8 @@ static void _print_callback(const struct device *dev, struct gpio_callback *cb, 
     }
 
     /* TODO: Timestamp sample */
+
+    k_condvar_signal(&_data.data_ready_cond);
 }
 
 int kei_interface_init(void) {
@@ -129,6 +134,9 @@ int kei_interface_init(void) {
 
     _data.trig.mode      = KEI_TRIGMODE_FREERUNNING;
     _data.trig.period_ms = 1000;
+
+    k_condvar_init(&_data.data_ready_cond);
+    k_mutex_init(&_data.data_ready_mutex);
 
     if(gpio_pin_configure_dt(&_int_gpios.polarity, GPIO_INPUT)           ||
        gpio_pin_configure_dt(&_int_gpios.overload, GPIO_INPUT)           ||
@@ -203,7 +211,7 @@ int kei_interface_print(void) {
      * ensure accuracy. Could also just print it as milli-whatever instead.
      * Could also use the polarity bit directly as a flag, to also enable
      * negative zero. */
-    LOG_INF("data: %c%03u.%04u x 10^%+02hhd %s", 
+    LOG_INF("data: %c%03u.%04u x 10^%+02hhd %s",
             (data.value < 0) ? '-' : '+',
             whole, frac, data.range,
             _unit_str[_data.mode]);
@@ -221,7 +229,12 @@ int kei_interface_set_mode(kei_interface_mode_e mode) {
     return 0;
 }
 
-static int kei_interface_trigger(void) {
+/**
+ * @brief Trigger a reading
+ *
+ * @param wait If non-zero, wait for data to come in before returning
+ */
+static int kei_interface_trigger(int wait) {
     if(_data.trig.mode == KEI_TRIGMODE_FREERUNNING) {
         return -1;
     }
@@ -237,12 +250,31 @@ static int kei_interface_trigger(void) {
         return -1;
     }
 
+    if (wait) {
+        if(k_mutex_lock(&_data.data_ready_mutex, K_MSEC(100))) {
+            return -1;
+        }
+
+        if (k_condvar_wait(&_data.data_ready_cond, &_data.data_ready_mutex, K_MSEC(100))) {
+            k_mutex_unlock(&_data.data_ready_mutex);
+            return -1;
+        }
+
+        k_mutex_unlock(&_data.data_ready_mutex);
+    }
+
     return 0;
 }
 
 int kei_interface_get_data(kei_interface_data_t *data) {
     if(!data) {
         return -1;
+    }
+
+    if(_data.trig.mode == KEI_TRIGMODE_MANUAL) {
+        if(kei_interface_trigger(1)) {
+            return -1;
+        }
     }
 
     /* TODO: Ensure raw data doesn't get overwritted while we are reading it */
@@ -325,6 +357,7 @@ int kei_interface_set_trigperiod(uint32_t period_ms) {
  * COMMAND HANDLERS
  */
 
+static int _cmdhdlr_kei_read(const struct shell *sh, size_t argc, char **argv);
 static int _cmdhdlr_kei_mode(const struct shell *sh, size_t argc, char **argv);
 static int _cmdhdlr_kei_trig_mode(const struct shell *sh, size_t argc, char **argv);
 static int _cmdhdlr_kei_trig_period(const struct shell *sh, size_t argc, char **argv);
@@ -339,6 +372,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(_subcmd_kei_trig,
 );
 
 SHELL_STATIC_SUBCMD_SET_CREATE(_subcmd_kei,
+    SHELL_CMD(read, NULL, "Get and display a reading from the instrument",
+                          _cmdhdlr_kei_read),
     SHELL_CMD(mode, NULL, "Get/set electrometer mode\n"
                           "  V: Volts, O: Ohms, C: Coulombs, A: Amperes",
                           _cmdhdlr_kei_mode),
@@ -347,6 +382,39 @@ SHELL_STATIC_SUBCMD_SET_CREATE(_subcmd_kei,
 );
 
 SHELL_CMD_REGISTER(kei, &_subcmd_kei, "Electrometer subcommands", NULL);
+
+static int _cmdhdlr_kei_read(const struct shell *sh, size_t argc, char **argv) {
+    ARG_UNUSED(argv);
+
+    if(argc != 1) {
+        shell_print(sh, "This command does not expect any arguments");
+        return -1;
+    }
+
+    kei_interface_data_t data;
+    if (kei_interface_get_data(&data)) {
+        return -1;
+    }
+    if(data.flags & KEI_DATAFLAG_OVERLOAD) {
+        shell_print(sh, "OVERLOAD");
+        return 0;
+    }
+
+    unsigned whole = ABS(data.value) / 1000000;
+    unsigned frac  = (ABS(data.value) % 1000000) / 100;
+
+    /* NOTE: If -1 < value < 0, the sign will not be present in the whole,
+     * so we instead just print it explicitly. Avoiding floating-points to
+     * ensure accuracy. Could also just print it as milli-whatever instead.
+     * Could also use the polarity bit directly as a flag, to also enable
+     * negative zero. */
+    shell_print(sh, "%c%03u.%04u x 10^%+02hhd %s",
+                (data.value < 0) ? '-' : '+',
+                whole, frac, data.range,
+                _unit_str[_data.mode]);
+
+    return 0;
+}
 
 static const char *_mode_stringify(kei_interface_mode_e mode) {
     switch(mode) {
