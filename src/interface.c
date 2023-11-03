@@ -1,3 +1,7 @@
+#include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -62,8 +66,13 @@ static const struct {
 
 
 static struct {
-    kei_interface_rawdata_t last_sample;
-    kei_interface_mode_e    mode;
+    kei_interface_rawdata_t last_sample;    /**< Last sample received from instrument */
+    kei_interface_mode_e    mode;           /**< Current instrument mode/units */
+
+    struct {
+        kei_interface_trigmode_e mode;      /**< Current trigger mode */
+        uint32_t                 period_ms; /**< Trigger period, in ms, when using periodic trigger */
+    } trig;
 
     struct gpio_callback print_gpio_callback;
 } _data;
@@ -71,7 +80,7 @@ static struct {
 /**
  * @brief Read a whole value given a set of BCD inputs
  */
-int _bcd_read(const struct gpio_dt_spec *gpios, int count) {
+static int _bcd_read(const struct gpio_dt_spec *gpios, int count) {
     unsigned value = 0;
     unsigned mul   = 1;
     while(count) {
@@ -117,6 +126,9 @@ static void _print_callback(const struct device *dev, struct gpio_callback *cb, 
 
 int kei_interface_init(void) {
     memset(&_data, 0, sizeof(_data));
+
+    _data.trig.mode      = KEI_TRIGMODE_FREERUNNING;
+    _data.trig.period_ms = 1000;
 
     if(gpio_pin_configure_dt(&_int_gpios.polarity, GPIO_INPUT)           ||
        gpio_pin_configure_dt(&_int_gpios.overload, GPIO_INPUT)           ||
@@ -171,13 +183,6 @@ static const char *_unit_str[KEI_MODE_MAX] = {
     [KEI_MODE_AMPERES]  = "A"
 };
 
-static const char *_unit_fullstr[KEI_MODE_MAX] = {
-    [KEI_MODE_NONE]     = "None",
-    [KEI_MODE_VOLTS]    = "Volts",
-    [KEI_MODE_OHMS]     = "Ohms",
-    [KEI_MODE_COULOMBS] = "Coulombs",
-    [KEI_MODE_AMPERES]  = "Amperes"
-};
 
 #define ABS(V) (((V) < 0) ? -(V) : (V))
 int kei_interface_print(void) {
@@ -212,6 +217,25 @@ int kei_interface_set_mode(kei_interface_mode_e mode) {
     }
 
     _data.mode = mode;
+
+    return 0;
+}
+
+static int kei_interface_trigger(void) {
+    if(_data.trig.mode == KEI_TRIGMODE_FREERUNNING) {
+        return -1;
+    }
+
+    if(gpio_pin_set_dt(&_int_gpios.trigger, 1)) {
+        return -1;
+    }
+
+    /* TODO: Determine minimum trigger time */
+    k_msleep(5);
+
+    if(gpio_pin_set_dt(&_int_gpios.trigger, 0)) {
+        return -1;
+    }
 
     return 0;
 }
@@ -256,20 +280,94 @@ int kei_interface_get_data(kei_interface_data_t *data) {
     return 0;
 }
 
+int kei_interface_set_trigmode(kei_interface_trigmode_e mode) {
+    if((mode <= KEI_TRIGMODE_NONE) || (mode >= KEI_TRIGMODE_MAX)) {
+        return -1;
+    }
+
+    if(mode == KEI_TRIGMODE_FREERUNNING) {
+        if(gpio_pin_set_dt(&_int_gpios.trigger, 0) ||
+           gpio_pin_set_dt(&_int_gpios.hold[0], 0) ||
+           gpio_pin_set_dt(&_int_gpios.hold[1], 0)) {
+            return -1;
+        }
+    } else {
+        /* Need some more testing to determine whether to use hold 1, 2, or both */
+        if(gpio_pin_set_dt(&_int_gpios.trigger, 0) ||
+           gpio_pin_set_dt(&_int_gpios.hold[0], 0) ||
+           gpio_pin_set_dt(&_int_gpios.hold[1], 1)) {
+            return -1;
+        }
+    }
+
+    _data.trig.mode = mode;
+
+    return 0;
+}
+
+int kei_interface_set_trigperiod(uint32_t period_ms) {
+    if(period_ms < KEI_TRIG_PERIOD_MIN) {
+        return -1;
+    }
+
+    if(_data.trig.mode == KEI_TRIGMODE_FREERUNNING) {
+        return -1;
+    }
+
+    _data.trig.period_ms = period_ms;
+
+    return 0;
+}
+
+
+
+/*
+ * COMMAND HANDLERS
+ */
+
 static int _cmdhdlr_kei_mode(const struct shell *sh, size_t argc, char **argv);
+static int _cmdhdlr_kei_trig_mode(const struct shell *sh, size_t argc, char **argv);
+static int _cmdhdlr_kei_trig_period(const struct shell *sh, size_t argc, char **argv);
+
+SHELL_STATIC_SUBCMD_SET_CREATE(_subcmd_kei_trig,
+    SHELL_CMD(mode, NULL, "Get/set trigger mode\n"
+                          "  F: Free-running, P: Periodic, M: Manual",
+                          _cmdhdlr_kei_trig_mode),
+    SHELL_CMD(period, NULL, "Get/set trigger period",
+                            _cmdhdlr_kei_trig_period),
+    SHELL_SUBCMD_SET_END
+);
 
 SHELL_STATIC_SUBCMD_SET_CREATE(_subcmd_kei,
     SHELL_CMD(mode, NULL, "Get/set electrometer mode\n"
                           "  V: Volts, O: Ohms, C: Coulombs, A: Amperes",
                           _cmdhdlr_kei_mode),
+    SHELL_CMD(trig, &_subcmd_kei_trig, "Trigger config sub-commands", NULL),
     SHELL_SUBCMD_SET_END
 );
 
 SHELL_CMD_REGISTER(kei, &_subcmd_kei, "Electrometer subcommands", NULL);
 
+static const char *_mode_stringify(kei_interface_mode_e mode) {
+    switch(mode) {
+        case KEI_MODE_NONE:
+            return "None";
+        case KEI_MODE_VOLTS:
+            return "Volts";
+        case KEI_MODE_OHMS:
+            return "Ohms";
+        case KEI_MODE_COULOMBS:
+            return "Coulombs";
+        case KEI_MODE_AMPERES:
+            return "Amperes";
+        default:
+            return "Invalid";
+    }
+}
+
 static int _cmdhdlr_kei_mode(const struct shell *sh, size_t argc, char **argv) {
     if(argc == 1) {
-        shell_print(sh, "Current mode: %d: %s", _data.mode, _unit_fullstr[_data.mode]);
+        shell_print(sh, "Current mode: %s (%d)", _mode_stringify(_data.mode), _data.mode);
     } else if(argc == 2) {
         if(strlen(argv[1]) > 1) {
             shell_print(sh, "Unsupported value for mode");
@@ -291,6 +389,87 @@ static int _cmdhdlr_kei_mode(const struct shell *sh, size_t argc, char **argv) {
             default:
                 shell_print(sh, "Unsupported value for mode");
                 return -1;
+        }
+    } else {
+        shell_print(sh, "Too many arguments!");
+        return -1;
+    }
+
+    return 0;
+}
+
+static const char *_trigmode_stringify(kei_interface_trigmode_e mode) {
+    switch(mode) {
+        case KEI_TRIGMODE_FREERUNNING:
+            return "free-running";
+        case KEI_TRIGMODE_PERIODIC:
+            return "periodic";
+        case KEI_TRIGMODE_MANUAL:
+            return "manual";
+        default:
+            return "invalid";
+    }
+}
+
+static int _cmdhdlr_kei_trig_mode(const struct shell *sh, size_t argc, char **argv) {
+    if(argc == 1) {
+        shell_print(sh, "Current trigger mode: %s (%d)",
+                    _trigmode_stringify(_data.trig.mode), _data.trig.mode);
+    } else if(argc == 2) {
+        if(strlen(argv[1]) > 1) {
+            shell_print(sh, "Unsupported value for mode");
+            return -1;
+        }
+
+        kei_interface_trigmode_e mode;
+
+        switch(argv[1][0]) {
+            case 'F':
+                mode = KEI_TRIGMODE_FREERUNNING;
+                break;
+            case 'P':
+                mode = KEI_TRIGMODE_PERIODIC;
+                break;
+            case 'M':
+                mode = KEI_TRIGMODE_MANUAL;
+                break;
+            default:
+                shell_print(sh, "Unsupported value for mode");
+                return -1;
+        }
+
+        if(kei_interface_set_trigmode(mode)) {
+            return -1;
+        }
+    } else {
+        shell_print(sh, "Too many arguments!");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int _cmdhdlr_kei_trig_period(const struct shell *sh, size_t argc, char **argv) {
+    if(_data.trig.mode != KEI_TRIGMODE_PERIODIC) {
+        shell_print(sh, "Only valid in periodic mode");
+        return -1;
+    }
+
+    if(argc == 1) {
+        shell_print(sh, "Current trigger period: %u ms", _data.trig.period_ms);
+    } else if(argc == 2) {
+        if(!isdigit(argv[1][0])) {
+            shell_print(sh, "Period must be a number");
+        }
+
+        unsigned period_ms = strtoul(argv[1], NULL, 10);
+        if(period_ms < KEI_TRIG_PERIOD_MIN) {
+            shell_print(sh, "Period cannot be lower than %u", KEI_TRIG_PERIOD_MIN);
+            return -1;
+        }
+
+        if (kei_interface_set_trigperiod(period_ms)) {
+            return -1;
         }
     } else {
         shell_print(sh, "Too many arguments!");

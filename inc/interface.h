@@ -5,6 +5,10 @@
 
 #define KEI_DATAFLAG_OVERLOAD (1U << 0)
 
+/* Manual states a maximum rate of 24 readings per second (may be slightly
+ * lower on 50 Hz units). */
+#define KEI_TRIG_PERIOD_MIN 42
+
 /**< Mode the electrometer is in. This is not available via the 50-pin connector */
 typedef enum {
     KEI_MODE_NONE  = 0,
@@ -27,6 +31,14 @@ typedef struct {
     int8_t  range;       /**< Current range (power) setting */
     uint8_t flags;       /**< Flags */
 } kei_interface_data_t;
+
+typedef enum {
+    KEI_TRIGMODE_NONE  = 0,
+    KEI_TRIGMODE_FREERUNNING, /**< Instrument is allowed to trigger itself */
+    KEI_TRIGMODE_PERIODIC,    /**< We periodically trigger the instrument */
+    KEI_TRIGMODE_MANUAL,      /**< We only trigger the instrument when a read is requested */
+    KEI_TRIGMODE_MAX
+} kei_interface_trigmode_e;
 
 /**
  * @brief Initialize interface GPIOs
@@ -53,6 +65,20 @@ int kei_interface_set_mode(kei_interface_mode_e mode);
  * @param data Where to store data
  */
 int kei_interface_get_data(kei_interface_data_t *data);
+
+/**
+ * @brief Set trigger mode
+ *
+ * @param mode Desired trigger mode
+ */
+int kei_interface_set_trigmode(kei_interface_trigmode_e mode);
+
+/**
+ * @brief Set trigger period (not applicable in free-running mode)
+ *
+ * @param period_ms Desired trigger period, in milliseconds, >= 42 ms
+ */
+int kei_interface_set_trigperiod(uint32_t period_ms);
 
 #endif
 
