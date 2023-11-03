@@ -1,6 +1,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/shell/shell.h>
 
 #include "interface.h"
 
@@ -170,6 +171,14 @@ static const char *_unit_str[KEI_MODE_MAX] = {
     [KEI_MODE_AMPERES]  = "A"
 };
 
+static const char *_unit_fullstr[KEI_MODE_MAX] = {
+    [KEI_MODE_NONE]     = "None",
+    [KEI_MODE_VOLTS]    = "Volts",
+    [KEI_MODE_OHMS]     = "Ohms",
+    [KEI_MODE_COULOMBS] = "Coulombs",
+    [KEI_MODE_AMPERES]  = "Amperes"
+};
+
 #define ABS(V) (((V) < 0) ? -(V) : (V))
 int kei_interface_print(void) {
     kei_interface_data_t data;
@@ -242,6 +251,50 @@ int kei_interface_get_data(kei_interface_data_t *data) {
         case KEI_MODE_AMPERES:
             data->range = -_data.last_sample.range;
             break;
+    }
+
+    return 0;
+}
+
+static int _cmdhdlr_kei_mode(const struct shell *sh, size_t argc, char **argv);
+
+SHELL_STATIC_SUBCMD_SET_CREATE(_subcmd_kei,
+    SHELL_CMD(mode, NULL, "Get/set electrometer mode\n"
+                          "  V: Volts, O: Ohms, C: Coulombs, A: Amperes",
+                          _cmdhdlr_kei_mode),
+    SHELL_SUBCMD_SET_END
+);
+
+SHELL_CMD_REGISTER(kei, &_subcmd_kei, "Electrometer subcommands", NULL);
+
+static int _cmdhdlr_kei_mode(const struct shell *sh, size_t argc, char **argv) {
+    if(argc == 1) {
+        shell_print(sh, "Current mode: %d: %s", _data.mode, _unit_fullstr[_data.mode]);
+    } else if(argc == 2) {
+        if(strlen(argv[1]) > 1) {
+            shell_print(sh, "Unsupported value for mode");
+            return -1;
+        }
+        switch(argv[1][0]) {
+            case 'V':
+                _data.mode = KEI_MODE_VOLTS;
+                break;
+            case 'O':
+                _data.mode = KEI_MODE_OHMS;
+                break;
+            case 'C':
+                _data.mode = KEI_MODE_COULOMBS;
+                break;
+            case 'A':
+                _data.mode = KEI_MODE_AMPERES;
+                break;
+            default:
+                shell_print(sh, "Unsupported value for mode");
+                return -1;
+        }
+    } else {
+        shell_print(sh, "Too many arguments!");
+        return -1;
     }
 
     return 0;
