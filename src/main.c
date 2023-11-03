@@ -28,7 +28,7 @@ void main(void) {
         LOG_ERR("Interface failure");
     }
 
-    kei_usb_init();
+    //kei_usb_init();
 
 #define SLEEP_TIME_MS (500)
     while(1) {
