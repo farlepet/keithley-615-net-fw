@@ -204,16 +204,16 @@ static void _kei_thread_main(void *p1, void *p2, void *p3) {
 
     while(1) {
         if(_data.trig.mode == KEI_TRIGMODE_PERIODIC) {
-            int64_t uptime = k_uptime_get();
-            if(uptime >= next_trig) {
+            int64_t ticks = k_uptime_ticks();
+            if(ticks >= next_trig) {
                 kei_interface_trigger(0);
-                next_trig = next_trig + _data.trig.period_ms;
-                if(uptime >= next_trig) {
-                    next_trig = uptime + _data.trig.period_ms;
+                next_trig = next_trig + ((_data.trig.period_ms * CONFIG_SYS_CLOCK_TICKS_PER_SEC) / 1000);
+                if(ticks >= next_trig) {
+                    next_trig = ticks + ((_data.trig.period_ms * CONFIG_SYS_CLOCK_TICKS_PER_SEC) / 1000);
                 }
             }
 
-            k_msleep(next_trig - uptime);
+            k_sleep(K_TICKS(next_trig - ticks));
         } else {
             k_msleep(1000);
         }
@@ -280,8 +280,7 @@ static int kei_interface_trigger(int wait) {
         return -1;
     }
 
-    /* TODO: Determine minimum trigger time */
-    k_msleep(5);
+    k_usleep(100);
 
     if(gpio_pin_set_dt(&_int_gpios.trigger, 0)) {
         return -1;
@@ -292,7 +291,7 @@ static int kei_interface_trigger(int wait) {
             return -1;
         }
 
-        if (k_condvar_wait(&_data.data_ready_cond, &_data.data_ready_mutex, K_MSEC(100))) {
+        if (k_condvar_wait(&_data.data_ready_cond, &_data.data_ready_mutex, K_MSEC(50))) {
             k_mutex_unlock(&_data.data_ready_mutex);
             return -1;
         }
