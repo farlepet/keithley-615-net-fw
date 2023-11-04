@@ -76,9 +76,13 @@ static struct {
 
     struct gpio_callback print_gpio_callback;
 
+    struct k_thread  thread;
+
     struct k_condvar data_ready_cond;
     struct k_mutex   data_ready_mutex;
 } _data;
+
+static int kei_interface_trigger(int wait);
 
 /**
  * @brief Read a whole value given a set of BCD inputs
@@ -128,6 +132,9 @@ static void _print_callback(const struct device *dev, struct gpio_callback *cb, 
 
     k_condvar_signal(&_data.data_ready_cond);
 }
+
+K_THREAD_STACK_DEFINE(_kei_thread_stack, 1024);
+static void _kei_thread_main(void *p1, void *p2, void *p3);
 
 int kei_interface_init(void) {
     memset(&_data, 0, sizeof(_data));
@@ -179,9 +186,39 @@ int kei_interface_init(void) {
 
     LOG_INF("Print interrupt enabled");
 
+    k_thread_create(&_data.thread, _kei_thread_stack, K_THREAD_STACK_SIZEOF(_kei_thread_stack),
+                    _kei_thread_main, NULL, NULL, NULL, 6, 0, K_NO_WAIT);
+
     return 0;
 }
 
+
+static void _kei_thread_main(void *p1, void *p2, void *p3) {
+    ARG_UNUSED(p1);
+    ARG_UNUSED(p2);
+    ARG_UNUSED(p3);
+
+    LOG_INF("KEI thread start");
+
+    int64_t next_trig = 0;
+
+    while(1) {
+        if(_data.trig.mode == KEI_TRIGMODE_PERIODIC) {
+            int64_t uptime = k_uptime_get();
+            if(uptime >= next_trig) {
+                kei_interface_trigger(0);
+                next_trig = next_trig + _data.trig.period_ms;
+                if(uptime >= next_trig) {
+                    next_trig = uptime + _data.trig.period_ms;
+                }
+            }
+
+            k_msleep(next_trig - uptime);
+        } else {
+            k_msleep(1000);
+        }
+    }
+}
 
 static const char *_unit_str[KEI_MODE_MAX] = {
     [KEI_MODE_NONE]     = "U",
